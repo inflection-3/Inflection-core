@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Script.sol";
+import "../src/MissionFactory.sol";
+import "../src/MissionContract.sol";
+import "../src/interfaces/IUSDC.sol";
+
+/**
+ * @title DeployMissionSystem
+ * @dev Deployment script for the Mission Factory system
+ */
+contract DeployMissionSystem is Script {
+    function run() external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        address usdcAddress = vm.envAddress("USDC_ADDRESS");
+        
+        vm.startBroadcast(deployerPrivateKey);
+        
+        // Deploy MissionFactory
+        MissionFactory factory = new MissionFactory(usdcAddress);
+        console.log("MissionFactory deployed at:", address(factory));
+        
+        // Deploy MissionContract (main hub)
+        MissionContract missionContract = new MissionContract(usdcAddress, address(factory));
+        console.log("MissionContract deployed at:", address(missionContract));
+        
+        // Transfer factory ownership to mission contract if needed
+        // factory.transferOwnership(address(missionContract));
+        
+        vm.stopBroadcast();
+        
+        // Log deployment information
+        console.log("=== Deployment Complete ===");
+        console.log("USDC Address:", usdcAddress);
+        console.log("MissionFactory:", address(factory));
+        console.log("MissionContract:", address(missionContract));
+        console.log("Deployer:", vm.addr(deployerPrivateKey));
+    }
+}

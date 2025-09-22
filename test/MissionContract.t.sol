@@ -1,230 +1,142 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.0;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
-import {Test, console} from "forge-std/Test.sol";
-import {MissionContract} from "../src/MissionContract.sol";
+import "forge-std/Test.sol";
+import "../src/MissionContract.sol";
+import "../src/MissionFactory.sol";
+import "../src/interfaces/IUSDC.sol";
+
+// Mock USDC contract for testing
+contract MockUSDC is IUSDC {
+    mapping(address => uint256) private _balances;
+    mapping(address => mapping(address => uint256)) private _allowances;
+    
+    uint256 private _totalSupply;
+    
+    function totalSupply() external view override returns (uint256) {
+        return _totalSupply;
+    }
+    
+    function balanceOf(address account) external view override returns (uint256) {
+        return _balances[account];
+    }
+    
+    function transfer(address to, uint256 amount) external override returns (bool) {
+        require(_balances[msg.sender] >= amount, "Insufficient balance");
+        _balances[msg.sender] -= amount;
+        _balances[to] += amount;
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+    
+    function allowance(address owner, address spender) external view override returns (uint256) {
+        return _allowances[owner][spender];
+    }
+    
+    function approve(address spender, uint256 amount) external override returns (bool) {
+        _allowances[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+    
+    function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
+        require(_balances[from] >= amount, "Insufficient balance");
+        require(_allowances[from][msg.sender] >= amount, "Insufficient allowance");
+        
+        _balances[from] -= amount;
+        _balances[to] += amount;
+        _allowances[from][msg.sender] -= amount;
+        
+        emit Transfer(from, to, amount);
+        return true;
+    }
+    
+    function mint(address to, uint256 amount) external {
+        _balances[to] += amount;
+        _totalSupply += amount;
+        emit Transfer(address(0), to, amount);
+    }
+}
 
 contract MissionContractTest is Test {
     MissionContract public missionContract;
-    address public admin;
-    address public org1;
-    address public org2;
-    address public user1;
-    address public user2;
-
+    MissionFactory public factory;
+    MockUSDC public usdcToken;
+    
+    address public owner = address(0x1);
+    address public user1 = address(0x2);
+    address public user2 = address(0x3);
+    
     function setUp() public {
-        admin = address(this);
-        org1 = address(0x1);
-        org2 = address(0x2);
-        user1 = address(0x3);
-        user2 = address(0x4);
+        vm.startPrank(owner);
+        usdcToken = new MockUSDC();
+        factory = new MissionFactory(address(usdcToken));
+        missionContract = new MissionContract(address(usdcToken), address(factory));
         
-        missionContract = new MissionContract();
+        // Transfer factory ownership to MissionContract so it can manage missions
+        factory.transferOwnership(address(missionContract));
+        
+        // Mint some USDC to owner for testing
+        usdcToken.mint(owner, 1000000 * 10**6); // 1M USDC (6 decimals)
+        usdcToken.approve(address(missionContract), type(uint256).max);
+        vm.stopPrank();
     }
-
-    function test_Constructor() public {
-        assertEq(missionContract.admin(), admin);
-        assertEq(missionContract.missionCount(), 0);
-        assertEq(missionContract.getOrganizationCount(), 0);
-        assertEq(missionContract.getCompletionCount(), 0);
-    }
-
-    function test_AddOrganization() public {
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
+    
+    function testCreateMission() public {
+        vm.startPrank(owner);
         
-        (string memory name, string memory description, address wallet) = missionContract.getOrganization(org1);
-        assertEq(name, "Test Org 1");
-        assertEq(description, "Description 1");
-        assertEq(wallet, org1);
+        (uint256 missionId, address missionAddress) = missionContract.createMission("Test Mission", "Test Description");
         
-        assertEq(missionContract.getOrganizationCount(), 1);
-        assertEq(missionContract.getOrganizationByIndex(0), org1);
-    }
-
-    function test_AddOrganization_OnlyAdmin() public {
-        vm.prank(org1);
-        vm.expectRevert("Only admin");
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-    }
-
-    function test_AddOrganization_AlreadyExists() public {
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        
-        vm.expectRevert("Organization already exists");
-        missionContract.addOrganization(org1, "Test Org 1 Updated", "Description 1 Updated");
-    }
-
-    function test_AddMission_ByAdmin() public {
-        // First add organization
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        
-        // Admin can add mission
-        missionContract.addMission("Test Mission 1", org1);
-        
-        assertEq(missionContract.missionCount(), 1);
-        
-        (uint id, string memory description, address organization) = missionContract.getMission(1);
-        assertEq(id, 1);
-        assertEq(description, "Test Mission 1");
-        assertEq(organization, org1);
-    }
-
-    function test_AddMission_ByOrganization() public {
-        // First add organization
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        
-        // Organization can add mission
-        vm.prank(org1);
-        missionContract.addMission("Test Mission 1", org1);
-        
-        assertEq(missionContract.missionCount(), 1);
-        
-        (uint id, string memory description, address organization) = missionContract.getMission(1);
-        assertEq(id, 1);
-        assertEq(description, "Test Mission 1");
-        assertEq(organization, org1);
-    }
-
-    function test_AddMission_NotAuthorized() public {
-        // First add organization
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        
-        // Random user cannot add mission
-        vm.prank(user1);
-        vm.expectRevert("Not authorized");
-        missionContract.addMission("Test Mission 1", org1);
-    }
-
-    function test_AddMission_OrganizationNotExists() public {
-        vm.expectRevert("Organization does not exist");
-        missionContract.addMission("Test Mission 1", org1);
-    }
-
-    function test_CompleteMission_ByAdmin() public {
-        // Setup
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        missionContract.addMission("Test Mission 1", org1);
-        
-        uint timestamp = block.timestamp;
-        missionContract.completeMission(1, user1, timestamp);
-        
-        assertEq(missionContract.getCompletionCount(), 1);
-        
-        (address user, uint missionId, uint completionTime, address organization) = missionContract.getCompletion(0);
-        assertEq(user, user1);
         assertEq(missionId, 1);
-        assertEq(completionTime, timestamp);
-        assertEq(organization, org1);
+        assertTrue(missionAddress != address(0));
+        assertEq(missionContract.getTotalMissions(), 1);
+        
+        MissionContract.MissionInfo memory missionInfo = missionContract.getMissionInfo(1);
+        assertEq(missionInfo.name, "Test Mission");
+        assertEq(missionInfo.description, "Test Description");
+        assertTrue(missionInfo.isActive);
+        
+        vm.stopPrank();
     }
-
-    function test_CompleteMission_ByOrganization() public {
-        // Setup
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        missionContract.addMission("Test Mission 1", org1);
+    
+    function testAddApplicationToMission() public {
+        vm.startPrank(owner);
         
-        uint timestamp = block.timestamp;
-        vm.prank(org1);
-        missionContract.completeMission(1, user1, timestamp);
+        // Create mission first
+        missionContract.createMission("Test Mission", "Test Description");
         
-        assertEq(missionContract.getCompletionCount(), 1);
+        // Add application to mission
+        missionContract.addApplicationToMission(
+            1,
+            "Test App",
+            "Test App Description",
+            "https://testapp.com",
+            "banner.jpg",
+            "logo.jpg"
+        );
         
-        (address user, uint missionId, uint completionTime, address organization) = missionContract.getCompletion(0);
-        assertEq(user, user1);
-        assertEq(missionId, 1);
-        assertEq(completionTime, timestamp);
-        assertEq(organization, org1);
+        // Get the mission contract and check application
+        MissionContract.MissionInfo memory missionInfo = missionContract.getMissionInfo(1);
+        Mission mission = Mission(missionInfo.missionAddress);
+        
+        assertEq(mission.getApplicationCount(), 1);
+        
+        IMission.Application memory app = mission.getApplication(1);
+        assertEq(app.name, "Test App");
+        assertEq(app.description, "Test App Description");
+        
+        vm.stopPrank();
     }
-
-    function test_CompleteMission_NotAuthorized() public {
-        // Setup
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        missionContract.addMission("Test Mission 1", org1);
+    
+    function testOnlyOwnerFunctions() public {
+        vm.startPrank(user1);
         
-        uint timestamp = block.timestamp;
-        vm.prank(user1);
-        vm.expectRevert("Not authorized");
-        missionContract.completeMission(1, user1, timestamp);
+        vm.expectRevert();
+        missionContract.createMission("Test", "Test");
+        
+        vm.expectRevert();
+        missionContract.addApplicationToMission(1, "Test", "Test", "https://test.com", "banner.jpg", "logo.jpg");
+        
+        vm.stopPrank();
     }
-
-    function test_CompleteMission_MissionNotExists() public {
-        vm.expectRevert("Mission does not exist");
-        missionContract.completeMission(999, user1, block.timestamp);
-    }
-
-    function test_GetOrganization_NotExists() public {
-        vm.expectRevert("Organization does not exist");
-        missionContract.getOrganization(org1);
-    }
-
-    function test_GetMission_NotExists() public {
-        vm.expectRevert("Mission does not exist");
-        missionContract.getMission(999);
-    }
-
-    function test_GetCompletion_IndexOutOfBounds() public {
-        vm.expectRevert("Index out of bounds");
-        missionContract.getCompletion(0);
-    }
-
-    function test_GetOrganizationByIndex_IndexOutOfBounds() public {
-        vm.expectRevert("Index out of bounds");
-        missionContract.getOrganizationByIndex(0);
-    }
-
-    function test_MultipleOrganizations() public {
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        missionContract.addOrganization(org2, "Test Org 2", "Description 2");
-        
-        assertEq(missionContract.getOrganizationCount(), 2);
-        assertEq(missionContract.getOrganizationByIndex(0), org1);
-        assertEq(missionContract.getOrganizationByIndex(1), org2);
-    }
-
-    function test_MultipleMissions() public {
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        missionContract.addOrganization(org2, "Test Org 2", "Description 2");
-        
-        missionContract.addMission("Mission 1", org1);
-        missionContract.addMission("Mission 2", org2);
-        
-        assertEq(missionContract.missionCount(), 2);
-        
-        (uint id1, string memory desc1, address org1Addr) = missionContract.getMission(1);
-        (uint id2, string memory desc2, address org2Addr) = missionContract.getMission(2);
-        
-        assertEq(id1, 1);
-        assertEq(desc1, "Mission 1");
-        assertEq(org1Addr, org1);
-        
-        assertEq(id2, 2);
-        assertEq(desc2, "Mission 2");
-        assertEq(org2Addr, org2);
-    }
-
-    function test_MultipleCompletions() public {
-        missionContract.addOrganization(org1, "Test Org 1", "Description 1");
-        missionContract.addMission("Mission 1", org1);
-        missionContract.addMission("Mission 2", org1);
-        
-        uint timestamp1 = block.timestamp;
-        uint timestamp2 = block.timestamp + 1;
-        
-        missionContract.completeMission(1, user1, timestamp1);
-        missionContract.completeMission(2, user2, timestamp2);
-        
-        assertEq(missionContract.getCompletionCount(), 2);
-        
-        (address user_1, uint missionId1, uint time1, address org_1) = missionContract.getCompletion(0);
-        (address user_2, uint missionId2, uint time2, address org_2) = missionContract.getCompletion(1);
-        
-        assertEq(user_1, user1);
-        assertEq(missionId1, 1);
-        assertEq(time1, timestamp1);
-        assertEq(org_1, org1);
-        
-        assertEq(user_2, user2);
-        assertEq(missionId2, 2);
-        assertEq(time2, timestamp2);
-        assertEq(org_2, org1);
-    }
-} 
+}

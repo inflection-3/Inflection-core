@@ -1,387 +1,199 @@
-# MissionContract
+# Mission Contract System
 
-A Solidity smart contract for managing missions and organizations built with [Foundry](https://book.getfoundry.sh/).
+A comprehensive smart contract system for managing missions, applications, interactions, and USDC rewards on Base blockchain.
 
-## Overview
+## 🏗️ Architecture
 
-MissionContract is a smart contract that allows:
-- **Admin** to add organizations and manage missions
-- **Organizations** to create missions for their cause
-- **Users** to complete missions and get recorded on-chain
-- **Transparent tracking** of all mission completions
+- **MissionFactory**: Deploys individual mission contracts
+- **Mission**: Individual mission contracts with applications, interactions, and rewards
+- **MissionContract**: Central hub for managing missions and their lifecycle
+- **Interfaces**: IUSDC and IMission for type safety
 
-## Features
+## 🚀 Quick Start
 
-- 🏢 **Organization Management**: Add and manage organizations
-- 🎯 **Mission Creation**: Create missions for organizations
-- ✅ **Mission Completion**: Track when users complete missions
-- 🔐 **Access Control**: Admin and organization-level permissions
-- 📊 **Transparent Tracking**: All actions recorded on-chain
+### Prerequisites
 
-## Prerequisites
+- [Foundry](https://book.getfoundry.sh/getting-started/installation)
+- [Node.js](https://nodejs.org/) (for deployed contract testing)
+- Base Sepolia or Base Mainnet RPC access
 
-- [Foundry](https://book.getfoundry.sh/getting-started/installation) installed
-- [Git](https://git-scm.com/) for version control
-- A wallet with some ETH for deployment (testnet or mainnet)
+### Installation
 
-## Installation
-
-1. Clone the repository:
-```bash
-git clone <your-repo-url>
-cd MissionContract
-```
-
+1. Clone the repository
 2. Install dependencies:
-```bash
-forge install
-```
+   ```bash
+   forge install
+   ```
 
-3. Build the project:
-```bash
-forge build
-```
+3. Copy environment variables:
+   ```bash
+   cp env.example .env
+   ```
 
-## Quick Start with Makefile
+4. Fill in your `.env` file with:
+   - `PRIVATE_KEY`: Your private key (without 0x prefix)
+   - `USDC_ADDRESS`: USDC contract address for the network
+   - `ETHERSCAN_API_KEY`: For contract verification
 
-For convenience, you can use the included Makefile commands instead of typing the full forge commands:
+### USDC Addresses
 
-### Set Private Key
-```bash
-export PRIVATE_KEY=<YOUR_PRIVATE_KEY>
-```
+- **Base Sepolia**: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
+- **Base Mainnet**: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
 
-### Available Make Commands
-```bash
-make build      # Compile contracts
-make test       # Run tests
-make deploy     # Deploy to Base Sepolia testnet
-```
+## 🧪 Testing
 
-**Note**: The Makefile deploy command is configured for Base Sepolia testnet (https://84532.rpc.thirdweb.com). To use this, set the PRIVATE_KEY environment variable before running commands:
+### Local Testing
 
 ```bash
-export PRIVATE_KEY=<YOUR_PRIVATE_KEY>
-make deploy
-```
-
-### Makefile vs Forge Commands
-
-| Makefile Command | Equivalent Forge Command |
-|------------------|--------------------------|
-| `make build`     | `forge build`            |
-| `make test`      | `forge test`             |
-| `make deploy`    | `forge create --rpc-url https://84532.rpc.thirdweb.com --private-key $PRIVATE_KEY src/MissionContract.sol:MissionContract` |
-
-### Quick Makefile Workflow
-
-```bash
-# 1. Set your private key
-export PRIVATE_KEY=your_private_key_here
-
-# 2. Build the project
-make build
-
-# 3. Run tests
+# Run all tests
 make test
 
-# 4. Deploy to Base Sepolia
-make deploy
+# Run tests with verbose output
+make test-verbose
+
+# Clean build artifacts
+make clean
 ```
 
-## Testing
-
-### Run All Tests
-```bash
-forge test
-```
-
-### Run Tests with Verbosity
-```bash
-forge test -v        # Show test names
-forge test -vv       # Show test names and logs
-forge test -vvv      # Show test names, logs, and traces
-forge test -vvvv     # Show test names, logs, traces, and debug info
-```
-
-### Run Specific Test
-```bash
-forge test --match-test test_AddOrganization
-```
-
-### Run Tests for Specific Contract
-```bash
-forge test --match-contract MissionContractTest
-```
-
-### Generate Test Coverage Report
-```bash
-forge coverage
-```
-
-## Deployment
-
-### Environment Setup
-
-Create a `.env` file in the root directory:
-```env
-# Private key for deployment (without 0x prefix)
-PRIVATE_KEY=your_private_key_here
-
-# RPC URLs for different networks
-MAINNET_RPC_URL=https://mainnet.infura.io/v3/your_infura_key
-SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/your_infura_key
-POLYGON_RPC_URL=https://polygon-mainnet.infura.io/v3/your_infura_key
-ARBITRUM_RPC_URL=https://arbitrum-mainnet.infura.io/v3/your_infura_key
-
-# Etherscan API keys for verification
-ETHERSCAN_API_KEY=your_etherscan_api_key
-POLYGONSCAN_API_KEY=your_polygonscan_api_key
-ARBISCAN_API_KEY=your_arbiscan_api_key
-```
-
-**⚠️ Important**: Never commit your `.env` file to version control. Add it to `.gitignore`.
-
-### Load Environment Variables
-
-**Option 1: Using .env file**
-```bash
-source .env
-```
-
-**Option 2: Export directly (recommended for Makefile)**
-```bash
-export PRIVATE_KEY=<YOUR_PRIVATE_KEY>
-export SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/your_infura_key
-# ... other variables as needed
-```
-
-**💡 Tip**: For Makefile usage, the export command is often more convenient as it sets variables for the current shell session.
-
-### Local Development
-
-Start a local Anvil node:
-```bash
-anvil
-```
-
-Deploy to local network:
-```bash
-forge script script/MissionContract.s.sol:MissionContractScript \
-  --rpc-url http://localhost:8545 \
-  --private-key $PRIVATE_KEY \
-  --broadcast
-```
-
-### Testnet Deployment
-
-#### Sepolia (Ethereum Testnet)
-```bash
-forge script script/MissionContract.s.sol:MissionContractScript \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --private-key $PRIVATE_KEY \
-  --broadcast \
-  --verify \
-  --etherscan-api-key $ETHERSCAN_API_KEY
-```
-
-#### Polygon Mumbai (Polygon Testnet)
-```bash
-forge script script/MissionContract.s.sol:MissionContractScript \
-  --rpc-url https://rpc-mumbai.maticvigil.com \
-  --private-key $PRIVATE_KEY \
-  --broadcast \
-  --verify \
-  --etherscan-api-key $POLYGONSCAN_API_KEY
-```
-
-### Mainnet Deployment
-
-#### Ethereum Mainnet
-```bash
-forge script script/MissionContract.s.sol:MissionContractScript \
-  --rpc-url $MAINNET_RPC_URL \
-  --private-key $PRIVATE_KEY \
-  --broadcast \
-  --verify \
-  --etherscan-api-key $ETHERSCAN_API_KEY
-```
-
-#### Polygon Mainnet
-```bash
-forge script script/MissionContract.s.sol:MissionContractScript \
-  --rpc-url $POLYGON_RPC_URL \
-  --private-key $PRIVATE_KEY \
-  --broadcast \
-  --verify \
-  --etherscan-api-key $POLYGONSCAN_API_KEY
-```
-
-### Deploy with Sample Data
-
-To deploy with sample organizations and missions:
-```bash
-forge script script/MissionContract.s.sol:MissionContractScript \
-  --sig "runWithSampleData()" \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --private-key $PRIVATE_KEY \
-  --broadcast
-```
-
-## Alternative Private Key Methods
-
-### 1. Using Keystore Files (Recommended for Production)
-```bash
-# Create a keystore file
-cast wallet import deployer --interactive
-
-# Deploy using keystore
-forge script script/MissionContract.s.sol:MissionContractScript \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --account deployer \
-  --sender 0xYourWalletAddress \
-  --broadcast
-```
-
-### 2. Using Ledger Hardware Wallet
-```bash
-forge script script/MissionContract.s.sol:MissionContractScript \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --ledger \
-  --sender 0xYourLedgerAddress \
-  --broadcast
-```
-
-### 3. Using Interactive Mode
-```bash
-forge script script/MissionContract.s.sol:MissionContractScript \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --interactive \
-  --broadcast
-```
-
-## Contract Verification
-
-### Verify on Etherscan
-```bash
-forge verify-contract \
-  --chain-id 11155111 \
-  --num-of-optimizations 200 \
-  --watch \
-  --constructor-args $(cast abi-encode "constructor()") \
-  --etherscan-api-key $ETHERSCAN_API_KEY \
-  --compiler-version v0.8.29+commit.e5e5eca2 \
-  0xYourContractAddress \
-  src/MissionContract.sol:MissionContract
-```
-
-## Useful Forge Commands
-
-### Build and Compilation
-```bash
-forge build                    # Compile contracts
-forge clean                    # Clean build artifacts
-forge fmt                      # Format code
-forge tree                     # Show dependency tree
-```
-
-### Testing
-```bash
-forge test                     # Run tests
-forge test --gas-report        # Run tests with gas report
-forge snapshot                 # Create gas snapshots
-forge coverage                 # Generate coverage report
-```
-
-### Deployment and Interaction
-```bash
-forge create                   # Deploy a contract
-forge script                   # Run deployment scripts
-forge cast                     # Interact with contracts
-```
-
-### Debug and Analysis
-```bash
-forge debug                    # Debug transactions
-forge inspect                  # Inspect contracts
-forge flatten                  # Flatten source code
-```
-
-## Contract Interaction Examples
-
-### Using Cast Commands
+### Deployed Contract Testing
 
 ```bash
-# Get contract admin
-cast call 0xYourContractAddress "admin()" --rpc-url $SEPOLIA_RPC_URL
+# Deploy and test on Base Sepolia
+make deploy-and-test-sepolia
 
-# Get organization count
-cast call 0xYourContractAddress "getOrganizationCount()" --rpc-url $SEPOLIA_RPC_URL
-
-# Get mission count
-cast call 0xYourContractAddress "missionCount()" --rpc-url $SEPOLIA_RPC_URL
-
-# Add organization (admin only)
-cast send 0xYourContractAddress \
-  "addOrganization(address,string,string)" \
-  0xOrgWalletAddress \
-  "Organization Name" \
-  "Organization Description" \
-  --private-key $PRIVATE_KEY \
-  --rpc-url $SEPOLIA_RPC_URL
-
-# Add mission
-cast send 0xYourContractAddress \
-  "addMission(string,address)" \
-  "Mission Description" \
-  0xOrgWalletAddress \
-  --private-key $PRIVATE_KEY \
-  --rpc-url $SEPOLIA_RPC_URL
+# Deploy and test on Base Mainnet
+make deploy-and-test-mainnet
 ```
 
-## Security Best Practices
+## 🚀 Deployment
 
-1. **Never commit private keys** to version control
-2. **Use environment variables** for sensitive data
-3. **Test thoroughly** before mainnet deployment
-4. **Verify contracts** on block explorers
-5. **Use hardware wallets** for production deployments
-6. **Double-check addresses** before sending transactions
-7. **Start with testnets** before mainnet
+### Base Sepolia (Testnet)
 
-## Project Structure
+```bash
+# Deploy to Base Sepolia
+make deploy-sepolia
 
-```
-MissionContract/
-├── src/
-│   └── MissionContract.sol     # Main contract
-├── test/
-│   └── MissionContract.t.sol   # Test suite
-├── script/
-│   └── MissionContract.s.sol   # Deployment scripts
-├── lib/
-│   └── forge-std/              # Foundry standard library
-├── .env                        # Environment variables (create this)
-├── .env.example               # Environment variables template
-├── .gitignore                  # Git ignore file
-├── foundry.toml               # Foundry configuration
-├── makefile                   # Make commands for easy development
-└── README.md                  # This file
+# Verify contracts
+make verify-sepolia
+
+# Test deployed contracts
+make test-deployed-sepolia
 ```
 
-## Contributing
+### Base Mainnet
+
+```bash
+# Deploy to Base Mainnet
+make deploy-mainnet
+
+# Verify contracts
+make verify-mainnet
+
+# Test deployed contracts
+make test-deployed-mainnet
+```
+
+## 📋 Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `make build` | Build contracts |
+| `make test` | Run local tests |
+| `make test-verbose` | Run tests with verbose output |
+| `make clean` | Clean build artifacts |
+| `make deploy-sepolia` | Deploy to Base Sepolia |
+| `make deploy-mainnet` | Deploy to Base Mainnet |
+| `make verify-sepolia` | Verify contracts on Base Sepolia |
+| `make verify-mainnet` | Verify contracts on Base Mainnet |
+| `make test-deployed-sepolia` | Test deployed contracts on Base Sepolia |
+| `make test-deployed-mainnet` | Test deployed contracts on Base Mainnet |
+| `make deploy-and-test-sepolia` | Full pipeline for Base Sepolia |
+| `make deploy-and-test-mainnet` | Full pipeline for Base Mainnet |
+
+## 🔧 Manual Script Usage
+
+### Deployment Script
+
+```bash
+# Deploy to Base Sepolia
+./scripts/deploy.sh sepolia
+
+# Deploy to Base Mainnet
+./scripts/deploy.sh mainnet
+```
+
+### Verification Script
+
+```bash
+# Verify on Base Sepolia
+./scripts/verify.sh sepolia
+
+# Verify on Base Mainnet
+./scripts/verify.sh mainnet
+```
+
+### Testing Script
+
+```bash
+# Test deployed contracts on Base Sepolia
+./scripts/test-deployed.sh sepolia
+
+# Test deployed contracts on Base Mainnet
+./scripts/test-deployed.sh mainnet
+```
+
+## 📊 Test Coverage
+
+- **24/24 tests passing** ✅
+- **MissionFactory Tests (9/9)**: Factory deployment, mission creation, ownership management
+- **Mission Tests (12/12)**: Applications, interactions, participants, rewards, claiming
+- **MissionContract Tests (3/3)**: Central hub functionality, mission management
+
+## 🏗️ Contract Features
+
+### MissionFactory
+- Deploy individual mission contracts
+- Track all deployed missions
+- Transfer mission ownership
+- Emergency USDC recovery
+
+### Mission
+- Add applications with metadata
+- Create interactions with rewards
+- Add participants who completed interactions
+- Deposit USDC rewards
+- Distribute rewards equally among participants
+- Allow participants to claim rewards
+- Deactivate applications and interactions
+
+### MissionContract
+- Central hub for mission management
+- Create and register missions
+- Add applications and interactions to missions
+- Manage participants
+- Deposit and distribute rewards
+- Track mission statistics
+
+## 🔒 Security Features
+
+- **Ownable**: Only contract owners can perform administrative functions
+- **ReentrancyGuard**: Prevents reentrancy attacks
+- **Input Validation**: Comprehensive parameter validation
+- **Access Control**: Role-based access control
+- **Emergency Functions**: Recovery functions for stuck funds
+
+## 📝 License
+
+MIT License - see LICENSE file for details
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Write tests for new functionality
-4. Ensure all tests pass
+3. Make your changes
+4. Add tests
 5. Submit a pull request
 
-## License
+## 📞 Support
 
-This project is licensed under the MIT License.
-
-## Support
-
-For questions or issues, please open an issue in the GitHub repository.
-# mission-contract
+For questions or support, please open an issue on GitHub.
