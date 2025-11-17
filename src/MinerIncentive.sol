@@ -75,6 +75,10 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
     // Miner addresses for iteration
     address[] public minerList;
     
+    // Checkpoint-based iteration for gas efficiency
+    uint256 public distributionCheckpoint; // Last processed index in minerList
+    uint256 public constant BATCH_SIZE = 50; // Process miners in batches
+    
     uint256 public totalContributions;
     uint256 public totalPools;
     uint256 public totalRewardsDistributed;
@@ -108,6 +112,9 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
     );
     event RewardsClaimed(address indexed miner, uint256 amount);
     event PoolFunded(uint256 indexed poolId, uint256 amount);
+    event DistributionCheckpointUpdated(uint256 newCheckpoint, uint256 totalProcessed);
+    event AdminUpdated(string parameter, uint256 oldValue, uint256 newValue);
+    event AdminAddressUpdated(string parameter, address oldValue, address newValue);
     
     modifier onlyActiveMiner(address miner) {
         require(miners[miner].isActive, "Miner not active");
@@ -154,7 +161,9 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
      */
     function setIdentityLayer(address _identityLayer) external onlyOwner {
         require(_identityLayer != address(0), "Invalid address");
+        address oldValue = address(identityLayer);
         identityLayer = IdentityLayer(_identityLayer);
+        emit AdminAddressUpdated("identityLayer", oldValue, _identityLayer);
     }
     
     /**
@@ -162,7 +171,9 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
      */
     function setRewardManager(address _rewardManager) external onlyOwner {
         require(_rewardManager != address(0), "Invalid address");
+        address oldValue = address(rewardManager);
         rewardManager = INXRewardManager(_rewardManager);
+        emit AdminAddressUpdated("rewardManager", oldValue, _rewardManager);
     }
     
     /**
@@ -170,7 +181,9 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
      */
     function setSettlement(address _settlement) external onlyOwner {
         require(_settlement != address(0), "Invalid address");
+        address oldValue = address(settlement);
         settlement = StablecoinSettlement(_settlement);
+        emit AdminAddressUpdated("settlement", oldValue, _settlement);
     }
     
     /**
@@ -353,7 +366,7 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Distribute rewards to miners based on their contributions
+     * @dev Distribute rewards to miners based on their contributions (optimized with batch processing)
      * @param poolId The pool ID
      * @param minerAddresses Array of miner addresses
      * @param rewardAmounts Array of reward amounts for each miner
@@ -383,7 +396,7 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
         );
         
         if (rewardType == RewardType.USDC) {
-            // Use StablecoinSettlement for USDC rewards
+            // Use StablecoinSettlement for USDC rewards (batch payout)
             require(
                 usdcToken.balanceOf(address(this)) >= totalRewards,
                 "Insufficient USDC balance"
@@ -398,27 +411,11 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
                 metadataHash
             );
             
-            // Execute settlement immediately
+            // Execute settlement immediately (single batch transaction)
             settlement.executeSettlement(settlementId);
             
-            // Update miner stats and IdentityLayer
-            for (uint256 i = 0; i < minerAddresses.length; i++) {
-                address miner = minerAddresses[i];
-                uint256 amount = rewardAmounts[i];
-                
-                if (amount > 0 && miners[miner].isActive) {
-                    miners[miner].totalRewardsEarned += amount;
-                    miners[miner].lastRewardClaim = block.timestamp;
-                    
-                    // Update IdentityLayer
-                    if (address(identityLayer) != address(0)) {
-                        identityLayer.updateRewardsEarned(miner, amount);
-                        identityLayer.recordTransaction(miner, amount, true);
-                    }
-                    
-                    emit RewardsDistributed(miner, amount, poolId);
-                }
-            }
+            // Update miner stats and IdentityLayer in batches
+            _updateMinersBatch(minerAddresses, rewardAmounts, poolId, true);
             
             pool.totalDistributed += totalRewards;
             totalRewardsDistributed += totalRewards;
@@ -426,34 +423,141 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
             // Use INXRewardManager for INX points
             require(address(rewardManager) != address(0), "RewardManager not set");
             
-            // Distribute through reward manager
+            // Distribute through reward manager (batch payout)
             rewardManager.distributeRewards(
                 rewardPoolId,
                 minerAddresses,
                 rewardAmounts
             );
             
-            // Update miner stats and IdentityLayer
-            for (uint256 i = 0; i < minerAddresses.length; i++) {
-                address miner = minerAddresses[i];
-                uint256 amount = rewardAmounts[i];
-                
-                if (amount > 0 && miners[miner].isActive) {
-                    miners[miner].totalRewardsEarned += amount;
-                    miners[miner].lastRewardClaim = block.timestamp;
-                    
-                    // Update IdentityLayer (treat INX points as rewards)
-                    if (address(identityLayer) != address(0)) {
-                        identityLayer.updateRewardsEarned(miner, amount);
-                    }
-                    
-                    emit RewardsDistributed(miner, amount, poolId);
-                }
-            }
+            // Update miner stats and IdentityLayer in batches
+            _updateMinersBatch(minerAddresses, rewardAmounts, poolId, false);
             
             pool.totalDistributed += totalRewards;
             totalRewardsDistributed += totalRewards;
         }
+    }
+    
+    /**
+     * @dev Internal function to update miners in batches for gas efficiency
+     * @param minerAddresses Array of miner addresses
+     * @param rewardAmounts Array of reward amounts
+     * @param poolId The pool ID
+     * @param recordTransaction Whether to record transaction in IdentityLayer
+     */
+    function _updateMinersBatch(
+        address[] calldata minerAddresses,
+        uint256[] calldata rewardAmounts,
+        uint256 poolId,
+        bool recordTransaction
+    ) internal {
+        uint256 length = minerAddresses.length;
+        for (uint256 i = 0; i < length; i++) {
+            address miner = minerAddresses[i];
+            uint256 amount = rewardAmounts[i];
+            
+            if (amount > 0 && miners[miner].isActive) {
+                miners[miner].totalRewardsEarned += amount;
+                miners[miner].lastRewardClaim = block.timestamp;
+                
+                // Update IdentityLayer
+                if (address(identityLayer) != address(0)) {
+                    identityLayer.updateRewardsEarned(miner, amount);
+                    if (recordTransaction) {
+                        identityLayer.recordTransaction(miner, amount, true);
+                    }
+                }
+                
+                emit RewardsDistributed(miner, amount, poolId);
+            }
+        }
+    }
+    
+    /**
+     * @dev Process reward distribution for miners using checkpoint-based iteration
+     * @param poolId The pool ID
+     * @param rewardType Type of reward (INX_POINTS or USDC)
+     * @param rewardPoolId Reward pool ID from INXRewardManager (if using INX points)
+     * @return processedCount Number of miners processed in this batch
+     */
+    function processRewardDistributionCheckpoint(
+        uint256 poolId,
+        RewardType rewardType,
+        uint256 rewardPoolId
+    ) external onlyOwner validPool(poolId) nonReentrant returns (uint256 processedCount) {
+        IncentivePool storage pool = incentivePools[poolId];
+        require(pool.isActive, "Pool not active");
+        
+        uint256 startIndex = distributionCheckpoint;
+        uint256 endIndex = startIndex + BATCH_SIZE;
+        if (endIndex > minerList.length) {
+            endIndex = minerList.length;
+        }
+        
+        if (startIndex >= minerList.length) {
+            // Reset checkpoint if we've processed all miners
+            distributionCheckpoint = 0;
+            return 0;
+        }
+        
+        // Collect active miners and their rewards for this batch
+        address[] memory batchMiners = new address[](endIndex - startIndex);
+        uint256[] memory batchRewards = new uint256[](endIndex - startIndex);
+        uint256 activeCount = 0;
+        uint256 totalBatchRewards = 0;
+        
+        for (uint256 i = startIndex; i < endIndex; i++) {
+            address miner = minerList[i];
+            if (miners[miner].isActive && miners[miner].totalRewardsEarned > 0) {
+                batchMiners[activeCount] = miner;
+                batchRewards[activeCount] = miners[miner].totalRewardsEarned;
+                totalBatchRewards += batchRewards[activeCount];
+                activeCount++;
+            }
+        }
+        
+        if (activeCount == 0) {
+            distributionCheckpoint = endIndex;
+            emit DistributionCheckpointUpdated(distributionCheckpoint, endIndex);
+            return 0;
+        }
+        
+        // Resize arrays to actual active count
+        address[] memory finalMiners = new address[](activeCount);
+        uint256[] memory finalRewards = new uint256[](activeCount);
+        for (uint256 i = 0; i < activeCount; i++) {
+            finalMiners[i] = batchMiners[i];
+            finalRewards[i] = batchRewards[i];
+        }
+        
+        // Distribute rewards
+        if (rewardType == RewardType.USDC) {
+            require(
+                usdcToken.balanceOf(address(this)) >= totalBatchRewards,
+                "Insufficient USDC balance"
+            );
+            
+            bytes32 metadataHash = keccak256(abi.encodePacked("miner_rewards_checkpoint", poolId, block.timestamp));
+            uint256 settlementId = settlement.createSettlement(
+                finalMiners,
+                finalRewards,
+                "miner_rewards",
+                metadataHash
+            );
+            settlement.executeSettlement(settlementId);
+            _updateMinersBatch(finalMiners, finalRewards, poolId, true);
+        } else {
+            require(address(rewardManager) != address(0), "RewardManager not set");
+            rewardManager.distributeRewards(rewardPoolId, finalMiners, finalRewards);
+            _updateMinersBatch(finalMiners, finalRewards, poolId, false);
+        }
+        
+        pool.totalDistributed += totalBatchRewards;
+        totalRewardsDistributed += totalBatchRewards;
+        distributionCheckpoint = endIndex;
+        
+        emit DistributionCheckpointUpdated(distributionCheckpoint, endIndex);
+        return activeCount;
     }
     
     /**
@@ -485,7 +589,9 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
      */
     function setMinContributionAmount(uint256 newMinAmount) external onlyOwner {
         require(newMinAmount > 0, "Invalid amount");
+        uint256 oldValue = minContributionAmount;
         minContributionAmount = newMinAmount;
+        emit AdminUpdated("minContributionAmount", oldValue, newMinAmount);
     }
     
     /**
@@ -494,7 +600,9 @@ contract MinerIncentive is Ownable, ReentrancyGuard {
      */
     function setRewardMultiplier(uint256 newMultiplier) external onlyOwner {
         require(newMultiplier > 0 && newMultiplier <= 100000, "Invalid multiplier");
+        uint256 oldValue = rewardMultiplier;
         rewardMultiplier = newMultiplier;
+        emit AdminUpdated("rewardMultiplier", oldValue, newMultiplier);
     }
     
     /**

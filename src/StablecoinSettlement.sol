@@ -103,6 +103,7 @@ contract StablecoinSettlement is Ownable, ReentrancyGuard {
         address[] recipients,
         uint256[] amounts
     );
+    event AdminUpdated(string parameter, uint256 oldValue, uint256 newValue);
     
     modifier validSettlement(uint256 settlementId) {
         require(settlements[settlementId].settlementId != 0, "Invalid settlement");
@@ -421,7 +422,9 @@ contract StablecoinSettlement is Ownable, ReentrancyGuard {
      */
     function setMinSettlementAmount(uint256 newMinAmount) external onlyOwner {
         require(newMinAmount > 0, "Invalid amount");
+        uint256 oldValue = minSettlementAmount;
         minSettlementAmount = newMinAmount;
+        emit AdminUpdated("minSettlementAmount", oldValue, newMinAmount);
     }
     
     /**
@@ -430,7 +433,9 @@ contract StablecoinSettlement is Ownable, ReentrancyGuard {
      */
     function setMaxRecipientsPerSettlement(uint256 newMaxRecipients) external onlyOwner {
         require(newMaxRecipients > 0, "Invalid value");
+        uint256 oldValue = maxRecipientsPerSettlement;
         maxRecipientsPerSettlement = newMaxRecipients;
+        emit AdminUpdated("maxRecipientsPerSettlement", oldValue, newMaxRecipients);
     }
     
     /**
@@ -439,7 +444,9 @@ contract StablecoinSettlement is Ownable, ReentrancyGuard {
      */
     function setSettlementFee(uint256 newFee) external onlyOwner {
         require(newFee <= 1000, "Fee too high (max 10%)");
+        uint256 oldValue = settlementFee;
         settlementFee = newFee;
+        emit AdminUpdated("settlementFee", oldValue, newFee);
     }
     
     // View functions

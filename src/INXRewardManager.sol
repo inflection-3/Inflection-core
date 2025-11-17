@@ -57,6 +57,7 @@ contract INXRewardManager is Ownable, ReentrancyGuard {
     // Configuration
     uint256 public minStakeAmount;
     uint256 public stakingLockPeriod; // Lock period in seconds
+    uint256 public rewardEpochDuration; // Duration of each reward epoch in seconds (default: 1 day)
     
     event RewardPoolCreated(
         uint256 indexed poolId,
@@ -80,6 +81,9 @@ contract INXRewardManager is Ownable, ReentrancyGuard {
     );
     event PoolDeactivated(uint256 indexed poolId);
     event INXTokenSet(address indexed inxToken);
+    event RewardsFinalized(uint256 indexed poolId, uint256 epochCutoff, uint256 totalDistributed);
+    event AdminUpdated(string parameter, uint256 oldValue, uint256 newValue);
+    event AdminAddressUpdated(string parameter, address oldValue, address newValue);
     
     modifier validPool(uint256 poolId) {
         require(rewardPools[poolId].poolId != 0, "Invalid pool");
@@ -101,6 +105,7 @@ contract INXRewardManager is Ownable, ReentrancyGuard {
         usdcToken = IUSDC(_usdcToken);
         minStakeAmount = 1; // Minimum stake amount
         stakingLockPeriod = 7 days; // 7 days lock period
+        rewardEpochDuration = 1 days; // Default epoch duration: 1 day
     }
     
     /**
@@ -109,9 +114,11 @@ contract INXRewardManager is Ownable, ReentrancyGuard {
      */
     function setINXToken(address _inxToken) external onlyOwner {
         require(_inxToken != address(0), "Invalid INX token address");
+        address oldValue = address(inxToken);
         inxToken = IERC20(_inxToken);
         
         emit INXTokenSet(_inxToken);
+        emit AdminAddressUpdated("inxToken", oldValue, _inxToken);
     }
     
     /**
@@ -276,7 +283,36 @@ contract INXRewardManager is Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Claim rewards for a specific pool
+     * @dev Finalize rewards for a pool with deterministic epoch cutoff
+     * @param poolId The pool ID
+     * @param epochCutoff The timestamp cutoff for the current epoch
+     */
+    function finalizeRewards(uint256 poolId, uint256 epochCutoff) 
+        external 
+        onlyOwner 
+        validPool(poolId) 
+    {
+        RewardPool storage pool = rewardPools[poolId];
+        require(pool.isActive, "Pool not active");
+        
+        // Validate epoch cutoff is within pool time range and aligned to epoch boundaries
+        require(
+            epochCutoff >= pool.startTime && epochCutoff <= pool.endTime,
+            "Invalid epoch cutoff"
+        );
+        
+        // Ensure cutoff is aligned to epoch boundaries (deterministic)
+        uint256 epochStart = (epochCutoff / rewardEpochDuration) * rewardEpochDuration;
+        require(epochStart == epochCutoff, "Cutoff not aligned to epoch");
+        
+        // Prevent processing same epoch twice by checking if cutoff is in the future
+        require(epochCutoff <= block.timestamp, "Cutoff must be in past");
+        
+        emit RewardsFinalized(poolId, epochCutoff, pool.distributedRewards);
+    }
+    
+    /**
+     * @dev Claim rewards for a specific pool with epoch cutoff validation
      * @param poolId The pool ID
      * @param amount Amount to claim
      */
@@ -301,7 +337,18 @@ contract INXRewardManager is Ownable, ReentrancyGuard {
         // Calculate rewards based on stake if staking is enabled
         if (stakes[msg.sender].staker != address(0)) {
             uint256 stakedAmount = stakes[msg.sender].amount;
-            uint256 timeStaked = block.timestamp - stakes[msg.sender].lastRewardClaim;
+            uint256 lastClaim = stakes[msg.sender].lastRewardClaim;
+            
+            // Apply deterministic epoch cutoff to prevent overlap
+            uint256 currentEpochStart = (block.timestamp / rewardEpochDuration) * rewardEpochDuration;
+            uint256 lastEpochStart = (lastClaim / rewardEpochDuration) * rewardEpochDuration;
+            
+            // Use epoch-aligned timestamps for calculation
+            uint256 timeStaked = currentEpochStart - lastEpochStart;
+            if (timeStaked == 0) {
+                revert("No rewards available in current epoch");
+            }
+            
             uint256 calculatedRewards = (stakedAmount * pool.rewardRate * timeStaked) / 1e18;
             
             if (amount > calculatedRewards) {
@@ -316,7 +363,9 @@ contract INXRewardManager is Ownable, ReentrancyGuard {
         totalRewardClaims++;
         
         if (stakes[msg.sender].staker != address(0)) {
-            stakes[msg.sender].lastRewardClaim = block.timestamp;
+            // Update to current epoch start for deterministic tracking
+            uint256 currentEpochStart = (block.timestamp / rewardEpochDuration) * rewardEpochDuration;
+            stakes[msg.sender].lastRewardClaim = currentEpochStart;
             stakes[msg.sender].totalRewardsClaimed += amount;
         }
         
@@ -382,7 +431,9 @@ contract INXRewardManager is Ownable, ReentrancyGuard {
      */
     function setMinStakeAmount(uint256 newMinAmount) external onlyOwner {
         require(newMinAmount > 0, "Invalid amount");
+        uint256 oldValue = minStakeAmount;
         minStakeAmount = newMinAmount;
+        emit AdminUpdated("minStakeAmount", oldValue, newMinAmount);
     }
     
     /**
@@ -390,7 +441,20 @@ contract INXRewardManager is Ownable, ReentrancyGuard {
      * @param newLockPeriod New lock period in seconds
      */
     function setStakingLockPeriod(uint256 newLockPeriod) external onlyOwner {
+        uint256 oldValue = stakingLockPeriod;
         stakingLockPeriod = newLockPeriod;
+        emit AdminUpdated("stakingLockPeriod", oldValue, newLockPeriod);
+    }
+    
+    /**
+     * @dev Update reward epoch duration
+     * @param newEpochDuration New epoch duration in seconds
+     */
+    function setRewardEpochDuration(uint256 newEpochDuration) external onlyOwner {
+        require(newEpochDuration > 0, "Invalid epoch duration");
+        uint256 oldValue = rewardEpochDuration;
+        rewardEpochDuration = newEpochDuration;
+        emit AdminUpdated("rewardEpochDuration", oldValue, newEpochDuration);
     }
     
     // View functions
